@@ -32,10 +32,14 @@ pub struct VulkanRenderer {
 }
 
 impl VulkanRenderer {
-    pub fn init(instance: Arc<Instance>, surface: &Arc<Surface<Window>>) -> Result<VulkanRenderer, EngineError> {
+    pub fn init(
+        instance: Arc<Instance>,
+        surface: &Arc<Surface<Window>>,
+    ) -> Result<VulkanRenderer, EngineError> {
         let (physycal_device, queue_family) =
             VulkanRenderer::get_physical_device(&instance, &surface)?;
-        let (device, mut queues) = VulkanRenderer::create_logical_device(physycal_device, queue_family)?;
+        let (device, mut queues) =
+            VulkanRenderer::create_logical_device(physycal_device, queue_family)?;
 
         let graphics_queue = queues.next().unwrap();
 
@@ -69,9 +73,8 @@ impl VulkanRenderer {
         // So, it doesn't make sense to validate if some requirement returned by it is missing on core
         let extensions = vulkano_win::required_extensions();
 
-        // So, lets check just to display whats inside core :)
+        // So, lets pretend we are worried and check if we have all necessary extensions :)
         if !VulkanRenderer::check_instance_extension_support(&extensions) {
-            eprintln!("Expected more instance extensions than available");
             return Err(EngineError::VulkanValidationError(String::from(
                 "Expected more instance extensions than available",
             )));
@@ -116,7 +119,7 @@ impl VulkanRenderer {
         }
 
         Err(EngineError::VulkanValidationError(String::from(
-            "No physical device available",
+            "No valid physical device available",
         )))
     }
 
@@ -128,20 +131,17 @@ impl VulkanRenderer {
         physical: PhysicalDevice,
         queue_family: QueueFamily,
     ) -> Result<(Arc<Device>, QueuesIter), EngineError> {
-        let (device, mut queues) = {
-            let device_ext = vulkano::device::DeviceExtensions {
-                khr_swapchain: true,
-                ..vulkano::device::DeviceExtensions::none()
-            };
-
-            Device::new(
-                physical,
-                physical.supported_features(),
-                &device_ext,
-                [(queue_family, 0.5)].iter().cloned(),
-            )
-            .expect("failed to create device")
+        let device_ext = vulkano::device::DeviceExtensions {
+            khr_swapchain: true,
+            ..vulkano::device::DeviceExtensions::none()
         };
+
+        let (device, queues) = Device::new(
+            physical,
+            physical.supported_features(),
+            &device_ext,
+            [(queue_family, 0.5)].iter().cloned(),
+        )?;
 
         Ok((device, queues))
     }

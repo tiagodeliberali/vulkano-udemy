@@ -1,10 +1,11 @@
 use std::error;
 use std::fmt;
-use vulkano::instance::InstanceCreationError;
+use vulkano::{device::DeviceCreationError, instance::InstanceCreationError};
 
 #[derive(Debug)]
 pub enum EngineError {
     VulkanInstanceCreationError(InstanceCreationError),
+    VulkanRawDeviceExtensions(DeviceCreationError),
     VulkanValidationError(String),
 }
 
@@ -19,5 +20,11 @@ impl error::Error for EngineError {}
 impl From<InstanceCreationError> for EngineError {
     fn from(error: InstanceCreationError) -> Self {
         EngineError::VulkanInstanceCreationError(error)
+    }
+}
+
+impl From<DeviceCreationError> for EngineError {
+    fn from(error: DeviceCreationError) -> Self {
+        EngineError::VulkanRawDeviceExtensions(error)
     }
 }

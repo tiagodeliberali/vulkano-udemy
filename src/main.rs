@@ -10,8 +10,8 @@ use vulkano::{
     pipeline::viewport::Viewport,
     pipeline::GraphicsPipeline,
     swapchain::{
-        acquire_next_image, AcquireError, ColorSpace, FullscreenExclusive, PresentMode,
-        SurfaceTransform, Swapchain, SwapchainCreationError, Surface
+        acquire_next_image, AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface,
+        SurfaceTransform, Swapchain, SwapchainCreationError,
     },
     sync::{now, FlushError, GpuFuture},
 };
