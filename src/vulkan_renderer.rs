@@ -3,51 +3,52 @@ use std::sync::Arc;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
     command_buffer::{AutoCommandBufferBuilder, DynamicState},
-    device::Device,
+    device::{Device, Queue, QueuesIter},
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
     image::{ImageUsage, SwapchainImage},
-    instance::{ApplicationInfo, Instance, InstanceExtensions, PhysicalDevice, Version},
+    instance::{
+        ApplicationInfo, Instance, InstanceExtensions, PhysicalDevice, QueueFamily, Version,
+    },
     pipeline::viewport::Viewport,
     pipeline::GraphicsPipeline,
     swapchain::{
-        acquire_next_image, AcquireError, ColorSpace, FullscreenExclusive, PresentMode,
+        acquire_next_image, AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface,
         SurfaceTransform, Swapchain, SwapchainCreationError,
     },
     sync::{now, FlushError, GpuFuture},
 };
-use vulkano_win::VkSurfaceBuild;
+use winit::{
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    window::{Window, WindowBuilder},
+};
 
 use crate::error_utils::EngineError;
 
-struct QueueFamilyIndices {
-    indice: isize,
-}
-
-impl QueueFamilyIndices {
-    fn is_valid(self) -> bool {
-        self.indice >= 0
-    }
-
-    fn empty() -> QueueFamilyIndices {
-        QueueFamilyIndices { indice: -1 }
-    }
-}
-
 pub struct VulkanRenderer {
     pub instance: Arc<Instance>,
+    pub device: Arc<Device>,
+    pub graphics_queue: Arc<Queue>,
 }
 
 impl VulkanRenderer {
-    pub fn init() -> Result<VulkanRenderer, EngineError> {
-        let instance = VulkanRenderer::create_instance()?;
-        let physycalDevice = VulkanRenderer::get_physical_device(&instance)?;
+    pub fn init(instance: Arc<Instance>, surface: &Arc<Surface<Window>>) -> Result<VulkanRenderer, EngineError> {
+        let (physycal_device, queue_family) =
+            VulkanRenderer::get_physical_device(&instance, &surface)?;
+        let (device, mut queues) = VulkanRenderer::create_logical_device(physycal_device, queue_family)?;
 
-        let result = VulkanRenderer { instance };
+        let graphics_queue = queues.next().unwrap();
+
+        let result = VulkanRenderer {
+            instance: instance,
+            device,
+            graphics_queue,
+        };
 
         Ok(result)
     }
 
-    fn create_instance() -> Result<Arc<Instance>, EngineError> {
+    pub fn create_instance() -> Result<Arc<Instance>, EngineError> {
         let app_info = ApplicationInfo {
             application_name: Some("Udemy tutorial".into()),
             application_version: Some(Version {
@@ -98,43 +99,50 @@ impl VulkanRenderer {
         }
     }
 
-    fn get_physical_device(instance: &Arc<Instance>) -> Result<PhysicalDevice, EngineError> {
+    fn get_physical_device<'a>(
+        instance: &'a Arc<Instance>,
+        surface: &Arc<Surface<Window>>,
+    ) -> Result<(PhysicalDevice<'a>, QueueFamily<'a>), EngineError> {
         let mut physical_device_list = PhysicalDevice::enumerate(&instance);
-        let mut physical_device = None;
 
         while let Some(device) = physical_device_list.next() {
-            if VulkanRenderer::check_device_suitable(&device) {
-                physical_device.replace(device);
-                break;
+            let valid_queue_family = device
+                .queue_families()
+                .find(|&q| VulkanRenderer::is_valid_queue_family(q, surface));
+
+            if let Some(family) = valid_queue_family {
+                return Ok((device, family));
             }
         }
 
-        match physical_device {
-            Some(v) => Ok(v),
-            None => Err(EngineError::VulkanValidationError(String::from(
-                "No physical device available",
-            ))),
-        }
+        Err(EngineError::VulkanValidationError(String::from(
+            "No physical device available",
+        )))
     }
 
-    fn check_device_suitable(physical_device: &PhysicalDevice) -> bool {
-        let queue_families = VulkanRenderer::get_queue_families(physical_device);
-
-        queue_families.is_valid()
+    fn is_valid_queue_family(q: QueueFamily, surface: &Arc<Surface<Window>>) -> bool {
+        q.supports_graphics() && surface.is_supported(q).unwrap_or(false)
     }
 
-    fn get_queue_families(physical_device: &PhysicalDevice) -> QueueFamilyIndices {
-        let mut queue_family = QueueFamilyIndices::empty();
-        let mut i = 0;
+    fn create_logical_device(
+        physical: PhysicalDevice,
+        queue_family: QueueFamily,
+    ) -> Result<(Arc<Device>, QueuesIter), EngineError> {
+        let (device, mut queues) = {
+            let device_ext = vulkano::device::DeviceExtensions {
+                khr_swapchain: true,
+                ..vulkano::device::DeviceExtensions::none()
+            };
 
-        while let Some(family) = physical_device.queue_families().next() {
-            if family.queues_count() > 0 && family.supports_graphics() {
-                queue_family.indice = i;
-                break;
-            }
-            i += 1;
-        }
+            Device::new(
+                physical,
+                physical.supported_features(),
+                &device_ext,
+                [(queue_family, 0.5)].iter().cloned(),
+            )
+            .expect("failed to create device")
+        };
 
-        queue_family
+        Ok((device, queues))
     }
 }
