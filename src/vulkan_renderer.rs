@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
@@ -50,8 +51,8 @@ impl VulkanRenderer {
         let instance = Self::create_instance()?;
         let debug_callback = Self::setup_debug_callback(&instance);
         let surface = Self::create_surface(instance.clone(), &event_loop);
-        let (physycal_device, queue_family) = Self::get_physical_device(&instance, &surface)?;
-        let (device, mut queues) = Self::create_logical_device(physycal_device, queue_family)?;
+        let (physycal_device, queue_families) = Self::get_physical_device(&instance, &surface)?;
+        let (device, mut queues) = Self::create_logical_device(physycal_device, queue_families)?;
 
         let graphics_queue = queues.next().unwrap();
 
@@ -187,16 +188,24 @@ impl VulkanRenderer {
     fn get_physical_device<'a>(
         instance: &'a Arc<Instance>,
         surface: &Arc<Surface<Window>>,
-    ) -> Result<(PhysicalDevice<'a>, QueueFamily<'a>), EngineError> {
+    ) -> Result<(PhysicalDevice<'a>, Vec<QueueFamily<'a>>), EngineError> {
         let mut physical_device_list = PhysicalDevice::enumerate(&instance);
 
         while let Some(device) = physical_device_list.next() {
-            let valid_queue_family = device
-                .queue_families()
-                .find(|&q| q.supports_graphics() && surface.is_supported(q).unwrap_or(false));
+            let graphical_queue_family = device.queue_families().find(|&q| q.supports_graphics());
 
-            if let Some(family) = valid_queue_family {
-                return Ok((device, family));
+            let presentation_queue_family = device
+                .queue_families()
+                .find(|&q| surface.is_supported(q).unwrap_or(false));
+
+            if let Some(graphical_family) = graphical_queue_family {
+                if let Some(presentation_family) = presentation_queue_family {
+                    let mut queues = Vec::from([graphical_family]);
+                    if graphical_family.id() != presentation_family.id() {
+                        queues.push(presentation_family);
+                    }
+                    return Ok((device, queues));
+                }
             }
         }
 
@@ -207,18 +216,21 @@ impl VulkanRenderer {
 
     fn create_logical_device(
         physical: PhysicalDevice,
-        queue_family: QueueFamily,
+        queue_families: Vec<QueueFamily>,
     ) -> Result<(Arc<Device>, QueuesIter), EngineError> {
         let device_ext = vulkano::device::DeviceExtensions {
             khr_swapchain: true,
             ..vulkano::device::DeviceExtensions::none()
         };
 
+        let families: Vec<(QueueFamily, f32)> =
+            queue_families.into_iter().map(|x| (x, 0.5)).collect();
+
         let (device, queues) = Device::new(
             physical,
             physical.supported_features(),
             &device_ext,
-            [(queue_family, 0.5)].iter().cloned(),
+            families,
         )?;
 
         Ok((device, queues))
