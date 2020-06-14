@@ -49,7 +49,7 @@ impl VulkanRenderer {
     pub fn init(event_loop: &EventLoop<()>) -> Result<Self, EngineError> {
         let instance = Self::create_instance()?;
         let debug_callback = Self::setup_debug_callback(&instance);
-        let surface = Self::create_surface(instance.clone(), &event_loop);
+        let surface = Self::create_surface(instance.clone(), &event_loop)?;
         let physycal_device = Self::get_physical_device(&instance, &surface)?;
         let (device, mut queues) = Self::create_logical_device(physycal_device, &surface)?;
 
@@ -114,10 +114,10 @@ impl VulkanRenderer {
     fn create_surface(
         instance: Arc<Instance>,
         events_loop: &EventLoop<()>,
-    ) -> Arc<Surface<Window>> {
-        WindowBuilder::new()
-            .build_vk_surface(&events_loop, instance)
-            .unwrap()
+    ) -> Result<Arc<Surface<Window>>, EngineError> {
+        let surface = WindowBuilder::new().build_vk_surface(&events_loop, instance)?;
+
+        Ok(surface)
     }
 
     fn get_required_instance_extensions() -> InstanceExtensions {
