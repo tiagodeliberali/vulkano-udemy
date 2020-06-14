@@ -37,7 +37,7 @@ fn init_window(instance: Arc<Instance>) -> (EventLoop<()>, Arc<Surface<Window>>)
 }
 
 fn main() {
-    let instance = match VulkanRenderer::create_instance() {
+    let (instance, debug_callback) = match VulkanRenderer::create_instance() {
         Ok(value) => value,
         Err(err) => {
             eprintln!("Failed to create instance: {}", err);
@@ -47,7 +47,7 @@ fn main() {
 
     let (events_loop, surface) = init_window(instance.clone());
 
-    let render = match VulkanRenderer::init(instance.clone(), &surface) {
+    let render = match VulkanRenderer::init(instance.clone(), &surface, debug_callback) {
         Ok(value) => value,
         Err(err) => {
             eprintln!("Failed to create vulkano renderer: {}", err);

@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::sync::Arc;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
@@ -7,7 +6,9 @@ use vulkano::{
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
     image::{ImageUsage, SwapchainImage},
     instance::{
-        ApplicationInfo, Instance, InstanceExtensions, PhysicalDevice, QueueFamily, Version,
+        layers_list, ApplicationInfo, Instance, InstanceExtensions, PhysicalDevice, QueueFamily,
+        Version,
+        debug::{DebugCallback, MessageSeverity, MessageType},
     },
     pipeline::viewport::Viewport,
     pipeline::GraphicsPipeline,
@@ -25,16 +26,28 @@ use winit::{
 
 use crate::error_utils::EngineError;
 
+const VALIDATION_LAYERS: &[&str] = &["VK_LAYER_KHRONOS_validation"];
+
+#[cfg(all(debug_assertions))]
+const ENABLE_VALIDATION_LAYERS: bool = true;
+#[cfg(not(debug_assertions))]
+const ENABLE_VALIDATION_LAYERS: bool = false;
+
+#[allow(unused)]
 pub struct VulkanRenderer {
     pub instance: Arc<Instance>,
     pub device: Arc<Device>,
     pub graphics_queue: Arc<Queue>,
+
+    // must live to keep working
+    debug_callback: Option<DebugCallback>
 }
 
 impl VulkanRenderer {
     pub fn init(
         instance: Arc<Instance>,
         surface: &Arc<Surface<Window>>,
+        debug_callback: Option<DebugCallback>
     ) -> Result<Self, EngineError> {
         let (physycal_device, queue_family) = Self::get_physical_device(&instance, &surface)?;
         let (device, mut queues) = Self::create_logical_device(physycal_device, queue_family)?;
@@ -45,12 +58,21 @@ impl VulkanRenderer {
             instance: instance,
             device,
             graphics_queue,
+            debug_callback,
         };
 
         Ok(result)
     }
 
-    pub fn create_instance() -> Result<Arc<Instance>, EngineError> {
+    pub fn create_instance() -> Result<(Arc<Instance>, Option<DebugCallback>), EngineError> {
+        if ENABLE_VALIDATION_LAYERS {
+            if !Self::check_validation_layer_support() {
+                println!("Validation layers requested, but not available!\n\n");
+            } else {
+                println!("Validation layers WORKING!!!\n\n");
+            }
+        }
+
         let app_info = ApplicationInfo {
             application_name: Some("Udemy tutorial".into()),
             application_version: Some(Version {
@@ -66,21 +88,73 @@ impl VulkanRenderer {
             }),
         };
 
-        // This method returns the intersect between the ideal winit requirements and supported_by_core (vkEnumerateInstanceExtensionProperties).
-        // There is no error handling, just the intersect result whatever it is
-        // So, it doesn't make sense to validate if some requirement returned by it is missing on core
-        let extensions = vulkano_win::required_extensions();
+        let extensions = Self::get_required_extensions();
 
-        // So, lets pretend we are worried and check if we have all necessary extensions :)
         if !Self::check_instance_extension_support(&extensions) {
             return Err(EngineError::VulkanValidationError(String::from(
                 "Expected more instance extensions than available",
             )));
         }
 
-        let instance = Instance::new(Some(&app_info), &extensions, None)?;
+        let instance = if ENABLE_VALIDATION_LAYERS && Self::check_validation_layer_support() {
+            Instance::new(
+                Some(&app_info),
+                &extensions,
+                VALIDATION_LAYERS.iter().cloned(),
+            )?
+        } else {
+            Instance::new(Some(&app_info), &extensions, None)?
+        };
 
-        Ok(instance)
+        let debug_callback = Self::setup_debug_callback(&instance);
+
+        Ok((instance, debug_callback))
+    }
+
+    fn get_required_extensions() -> InstanceExtensions {
+        // This method returns the intersect between the ideal winit requirements and supported_by_core (vkEnumerateInstanceExtensionProperties).
+        // There is no error handling, just the intersect result whatever it is
+        // So, it doesn't make sense to validate if some requirement returned by it is missing on core
+        let mut extensions = vulkano_win::required_extensions();
+
+        // here is a extension request that will be validated by our check_instance_extension_support
+        if ENABLE_VALIDATION_LAYERS {
+            extensions.ext_debug_utils = true;
+        }
+
+        extensions
+    }
+
+    fn check_validation_layer_support() -> bool {
+        let layers: Vec<_> = layers_list()
+            .unwrap()
+            .map(|l| l.name().to_owned())
+            .collect();
+
+        println!("Available validation layers:");
+        for l in &layers {
+            println!("{}", l);
+        }
+
+        VALIDATION_LAYERS
+            .iter()
+            .all(|layer_name| layers.contains(&layer_name.to_string()))
+    }
+
+    fn setup_debug_callback(instance: &Arc<Instance>) -> Option<DebugCallback> {
+        if !ENABLE_VALIDATION_LAYERS  {
+            return None;
+        }
+
+        let mut msg_severity = MessageSeverity::errors_and_warnings();
+        msg_severity.information = true;
+        msg_severity.verbose = true;
+
+        let msg_type = MessageType::all();
+
+        DebugCallback::new(&instance, msg_severity, msg_type, |msg| {
+            println!("validation layer: {:?}", msg.description);
+        }).ok()
     }
 
     fn check_instance_extension_support(extensions: &InstanceExtensions) -> bool {
