@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::sync::Arc;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
@@ -26,7 +25,7 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use crate::error_utils::EngineError;
+use crate::{error_utils::EngineError, utilities::QueueFamilyIndices};
 
 const VALIDATION_LAYERS: &[&str] = &["VK_LAYER_KHRONOS_validation"];
 
@@ -51,8 +50,8 @@ impl VulkanRenderer {
         let instance = Self::create_instance()?;
         let debug_callback = Self::setup_debug_callback(&instance);
         let surface = Self::create_surface(instance.clone(), &event_loop);
-        let (physycal_device, queue_families) = Self::get_physical_device(&instance, &surface)?;
-        let (device, mut queues) = Self::create_logical_device(physycal_device, queue_families)?;
+        let physycal_device = Self::get_physical_device(&instance, &surface)?;
+        let (device, mut queues) = Self::create_logical_device(physycal_device, &surface)?;
 
         let graphics_queue = queues.next().unwrap();
 
@@ -188,24 +187,12 @@ impl VulkanRenderer {
     fn get_physical_device<'a>(
         instance: &'a Arc<Instance>,
         surface: &Arc<Surface<Window>>,
-    ) -> Result<(PhysicalDevice<'a>, Vec<QueueFamily<'a>>), EngineError> {
+    ) -> Result<PhysicalDevice<'a>, EngineError> {
         let mut physical_device_list = PhysicalDevice::enumerate(&instance);
 
         while let Some(device) = physical_device_list.next() {
-            let graphical_queue_family = device.queue_families().find(|&q| q.supports_graphics());
-
-            let presentation_queue_family = device
-                .queue_families()
-                .find(|&q| surface.is_supported(q).unwrap_or(false));
-
-            if let Some(graphical_family) = graphical_queue_family {
-                if let Some(presentation_family) = presentation_queue_family {
-                    let mut queues = Vec::from([graphical_family]);
-                    if graphical_family.id() != presentation_family.id() {
-                        queues.push(presentation_family);
-                    }
-                    return Ok((device, queues));
-                }
+            if Self::check_device_suitable(&device, surface) {
+                return Ok(device);
             }
         }
 
@@ -214,17 +201,52 @@ impl VulkanRenderer {
         )))
     }
 
+    fn check_device_suitable(
+        physical_device: &PhysicalDevice,
+        surface: &Arc<Surface<Window>>,
+    ) -> bool {
+        let queue_families = Self::get_queue_families(physical_device, surface);
+
+        queue_families.is_valid()
+    }
+
+    fn get_queue_families<'a>(
+        physical_device: &PhysicalDevice<'a>,
+        surface: &Arc<Surface<Window>>,
+    ) -> QueueFamilyIndices<'a> {
+        let mut queue_family_indices = QueueFamilyIndices::new();
+
+        if let Some(family) = physical_device
+            .queue_families()
+            .find(|&q| q.supports_graphics())
+        {
+            queue_family_indices.graphics_family = Some(family);
+        }
+
+        if let Some(family) = physical_device
+            .queue_families()
+            .find(|&q| surface.is_supported(q).unwrap_or(false))
+        {
+            queue_family_indices.presentation_family = Some(family);
+        }
+
+        queue_family_indices
+    }
+
     fn create_logical_device(
         physical: PhysicalDevice,
-        queue_families: Vec<QueueFamily>,
+        surface: &Arc<Surface<Window>>,
     ) -> Result<(Arc<Device>, QueuesIter), EngineError> {
         let device_ext = vulkano::device::DeviceExtensions {
             khr_swapchain: true,
             ..vulkano::device::DeviceExtensions::none()
         };
 
-        let families: Vec<(QueueFamily, f32)> =
-            queue_families.into_iter().map(|x| (x, 0.5)).collect();
+        let families: Vec<(QueueFamily, f32)> = Self::get_queue_families(&physical, surface)
+            .into_vec()
+            .into_iter()
+            .map(|x| (x, 0.5))
+            .collect();
 
         let (device, queues) = Device::new(
             physical,

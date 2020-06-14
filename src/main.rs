@@ -23,6 +23,7 @@ use winit::{
 };
 
 mod error_utils;
+mod utilities;
 mod vulkan_renderer;
 
 use vulkan_renderer::VulkanRenderer;
