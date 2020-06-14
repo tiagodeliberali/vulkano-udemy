@@ -46,7 +46,27 @@ pub struct VulkanRenderer {
 }
 
 impl VulkanRenderer {
-    pub fn create_instance() -> Result<(Arc<Instance>, Option<DebugCallback>), EngineError> {
+    pub fn init(event_loop: &EventLoop<()>) -> Result<Self, EngineError> {
+        let instance = Self::create_instance()?;
+        let debug_callback = Self::setup_debug_callback(&instance);
+        let surface = Self::create_surface(instance.clone(), &event_loop);
+        let (physycal_device, queue_family) = Self::get_physical_device(&instance, &surface)?;
+        let (device, mut queues) = Self::create_logical_device(physycal_device, queue_family)?;
+
+        let graphics_queue = queues.next().unwrap();
+
+        let result = VulkanRenderer {
+            instance: instance,
+            device,
+            graphics_queue,
+            surface,
+            debug_callback,
+        };
+
+        Ok(result)
+    }
+
+    fn create_instance() -> Result<Arc<Instance>, EngineError> {
         if ENABLE_VALIDATION_LAYERS {
             if !Self::check_validation_layer_support() {
                 println!("Validation layers requested, but not available!\n\n");
@@ -88,32 +108,7 @@ impl VulkanRenderer {
             Instance::new(Some(&app_info), &extensions, None)?
         };
 
-        let debug_callback = Self::setup_debug_callback(&instance);
-
-        Ok((instance, debug_callback))
-    }
-
-    pub fn init(
-        instance: Arc<Instance>,
-        event_loop: &EventLoop<()>,
-        debug_callback: Option<DebugCallback>,
-    ) -> Result<Self, EngineError> {
-        let surface = Self::create_surface(instance.clone(), &event_loop);
-
-        let (physycal_device, queue_family) = Self::get_physical_device(&instance, &surface)?;
-        let (device, mut queues) = Self::create_logical_device(physycal_device, queue_family)?;
-
-        let graphics_queue = queues.next().unwrap();
-
-        let result = VulkanRenderer {
-            instance: instance,
-            device,
-            graphics_queue,
-            surface,
-            debug_callback,
-        };
-
-        Ok(result)
+        Ok(instance)
     }
 
     fn create_surface(

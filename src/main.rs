@@ -27,23 +27,15 @@ mod vulkan_renderer;
 
 use vulkan_renderer::VulkanRenderer;
 
-fn init_window(instance: Arc<Instance>) -> EventLoop<()> {
+fn init_window() -> EventLoop<()> {
     let events_loop = EventLoop::new();
     events_loop
 }
 
 fn main() {
-    let (instance, debug_callback) = match VulkanRenderer::create_instance() {
-        Ok(value) => value,
-        Err(err) => {
-            eprintln!("Failed to create instance: {}", err);
-            process::exit(1);
-        }
-    };
+    let events_loop = init_window();
 
-    let events_loop = init_window(instance.clone());
-
-    let render = match VulkanRenderer::init(instance.clone(), &events_loop, debug_callback) {
+    let render = match VulkanRenderer::init(&events_loop) {
         Ok(value) => value,
         Err(err) => {
             eprintln!("Failed to create vulkano renderer: {}", err);
