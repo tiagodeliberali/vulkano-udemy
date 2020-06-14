@@ -6,9 +6,9 @@ use vulkano::{
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
     image::{ImageUsage, SwapchainImage},
     instance::{
+        debug::{DebugCallback, MessageSeverity, MessageType},
         layers_list, ApplicationInfo, Instance, InstanceExtensions, PhysicalDevice, QueueFamily,
         Version,
-        debug::{DebugCallback, MessageSeverity, MessageType},
     },
     pipeline::viewport::Viewport,
     pipeline::GraphicsPipeline,
@@ -40,14 +40,14 @@ pub struct VulkanRenderer {
     pub graphics_queue: Arc<Queue>,
 
     // must live to keep working
-    debug_callback: Option<DebugCallback>
+    debug_callback: Option<DebugCallback>,
 }
 
 impl VulkanRenderer {
     pub fn init(
         instance: Arc<Instance>,
         surface: &Arc<Surface<Window>>,
-        debug_callback: Option<DebugCallback>
+        debug_callback: Option<DebugCallback>,
     ) -> Result<Self, EngineError> {
         let (physycal_device, queue_family) = Self::get_physical_device(&instance, &surface)?;
         let (device, mut queues) = Self::create_logical_device(physycal_device, queue_family)?;
@@ -142,7 +142,7 @@ impl VulkanRenderer {
     }
 
     fn setup_debug_callback(instance: &Arc<Instance>) -> Option<DebugCallback> {
-        if !ENABLE_VALIDATION_LAYERS  {
+        if !ENABLE_VALIDATION_LAYERS {
             return None;
         }
 
@@ -154,7 +154,8 @@ impl VulkanRenderer {
 
         DebugCallback::new(&instance, msg_severity, msg_type, |msg| {
             println!("validation layer: {:?}", msg.description);
-        }).ok()
+        })
+        .ok()
     }
 
     fn check_instance_extension_support(extensions: &InstanceExtensions) -> bool {
