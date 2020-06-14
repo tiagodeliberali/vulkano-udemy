@@ -18,6 +18,7 @@ use vulkano::{
     },
     sync::{now, FlushError, GpuFuture},
 };
+use vulkano_win::VkSurfaceBuild;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -40,30 +41,11 @@ pub struct VulkanRenderer {
     pub graphics_queue: Arc<Queue>,
 
     // must live to keep working
+    surface: Arc<Surface<Window>>,
     debug_callback: Option<DebugCallback>,
 }
 
 impl VulkanRenderer {
-    pub fn init(
-        instance: Arc<Instance>,
-        surface: &Arc<Surface<Window>>,
-        debug_callback: Option<DebugCallback>,
-    ) -> Result<Self, EngineError> {
-        let (physycal_device, queue_family) = Self::get_physical_device(&instance, &surface)?;
-        let (device, mut queues) = Self::create_logical_device(physycal_device, queue_family)?;
-
-        let graphics_queue = queues.next().unwrap();
-
-        let result = VulkanRenderer {
-            instance: instance,
-            device,
-            graphics_queue,
-            debug_callback,
-        };
-
-        Ok(result)
-    }
-
     pub fn create_instance() -> Result<(Arc<Instance>, Option<DebugCallback>), EngineError> {
         if ENABLE_VALIDATION_LAYERS {
             if !Self::check_validation_layer_support() {
@@ -109,6 +91,38 @@ impl VulkanRenderer {
         let debug_callback = Self::setup_debug_callback(&instance);
 
         Ok((instance, debug_callback))
+    }
+
+    pub fn init(
+        instance: Arc<Instance>,
+        event_loop: &EventLoop<()>,
+        debug_callback: Option<DebugCallback>,
+    ) -> Result<Self, EngineError> {
+        let surface = Self::create_surface(instance.clone(), &event_loop);
+
+        let (physycal_device, queue_family) = Self::get_physical_device(&instance, &surface)?;
+        let (device, mut queues) = Self::create_logical_device(physycal_device, queue_family)?;
+
+        let graphics_queue = queues.next().unwrap();
+
+        let result = VulkanRenderer {
+            instance: instance,
+            device,
+            graphics_queue,
+            surface,
+            debug_callback,
+        };
+
+        Ok(result)
+    }
+
+    fn create_surface(
+        instance: Arc<Instance>,
+        events_loop: &EventLoop<()>,
+    ) -> Arc<Surface<Window>> {
+        WindowBuilder::new()
+            .build_vk_surface(&events_loop, instance)
+            .unwrap()
     }
 
     fn get_required_extensions() -> InstanceExtensions {
@@ -184,7 +198,7 @@ impl VulkanRenderer {
         while let Some(device) = physical_device_list.next() {
             let valid_queue_family = device
                 .queue_families()
-                .find(|&q| Self::is_valid_queue_family(q, surface));
+                .find(|&q| q.supports_graphics() && surface.is_supported(q).unwrap_or(false));
 
             if let Some(family) = valid_queue_family {
                 return Ok((device, family));
@@ -194,10 +208,6 @@ impl VulkanRenderer {
         Err(EngineError::VulkanValidationError(String::from(
             "No valid physical device available",
         )))
-    }
-
-    fn is_valid_queue_family(q: QueueFamily, surface: &Arc<Surface<Window>>) -> bool {
-        q.supports_graphics() && surface.is_supported(q).unwrap_or(false)
     }
 
     fn create_logical_device(

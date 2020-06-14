@@ -15,7 +15,7 @@ use vulkano::{
     },
     sync::{now, FlushError, GpuFuture},
 };
-use vulkano_win::VkSurfaceBuild;
+
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -27,13 +27,9 @@ mod vulkan_renderer;
 
 use vulkan_renderer::VulkanRenderer;
 
-fn init_window(instance: Arc<Instance>) -> (EventLoop<()>, Arc<Surface<Window>>) {
+fn init_window(instance: Arc<Instance>) -> EventLoop<()> {
     let events_loop = EventLoop::new();
-    let surface = WindowBuilder::new()
-        .build_vk_surface(&events_loop, instance)
-        .unwrap();
-
-    (events_loop, surface)
+    events_loop
 }
 
 fn main() {
@@ -45,9 +41,9 @@ fn main() {
         }
     };
 
-    let (events_loop, surface) = init_window(instance.clone());
+    let events_loop = init_window(instance.clone());
 
-    let render = match VulkanRenderer::init(instance.clone(), &surface, debug_callback) {
+    let render = match VulkanRenderer::init(instance.clone(), &events_loop, debug_callback) {
         Ok(value) => value,
         Err(err) => {
             eprintln!("Failed to create vulkano renderer: {}", err);
