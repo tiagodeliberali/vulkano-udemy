@@ -1,6 +1,10 @@
 use std::error;
 use std::fmt;
-use vulkano::{device::DeviceCreationError, instance::InstanceCreationError};
+use vulkano::{
+    device::DeviceCreationError,
+    instance::InstanceCreationError,
+    swapchain::{CapabilitiesError, SwapchainCreationError},
+};
 use vulkano_win::CreationError;
 
 #[derive(Debug)]
@@ -9,6 +13,8 @@ pub enum EngineError {
     VulkanDeviceCreationError(DeviceCreationError),
     VulkanCreationError(CreationError),
     VulkanValidationError(String),
+    VulkanCapabilitiesError(CapabilitiesError),
+    VulkanSwapchainCreationError(SwapchainCreationError),
 }
 
 impl fmt::Display for EngineError {
@@ -34,5 +40,17 @@ impl From<DeviceCreationError> for EngineError {
 impl From<CreationError> for EngineError {
     fn from(error: CreationError) -> Self {
         EngineError::VulkanCreationError(error)
+    }
+}
+
+impl From<CapabilitiesError> for EngineError {
+    fn from(error: CapabilitiesError) -> Self {
+        EngineError::VulkanCapabilitiesError(error)
+    }
+}
+
+impl From<SwapchainCreationError> for EngineError {
+    fn from(error: SwapchainCreationError) -> Self {
+        EngineError::VulkanSwapchainCreationError(error)
     }
 }

@@ -3,6 +3,7 @@ use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
     command_buffer::{AutoCommandBufferBuilder, DynamicState},
     device::{Device, DeviceExtensions, Queue, QueuesIter},
+    format::Format,
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
     image::{ImageUsage, SwapchainImage},
     instance::{
@@ -10,13 +11,12 @@ use vulkano::{
         layers_list, ApplicationInfo, Instance, InstanceExtensions, PhysicalDevice, QueueFamily,
         Version,
     },
-    pipeline::viewport::Viewport,
-    pipeline::GraphicsPipeline,
+    pipeline::{viewport::Viewport, GraphicsPipeline},
     swapchain::{
-        acquire_next_image, AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface,
-        SurfaceTransform, Swapchain, SwapchainCreationError,
+        acquire_next_image, AcquireError, ColorSpace, FullscreenExclusive, PresentMode,
+        SupportedPresentModes, Surface, SurfaceTransform, Swapchain, SwapchainCreationError,
     },
-    sync::{now, FlushError, GpuFuture},
+    sync::{now, FlushError, GpuFuture, SharingMode},
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
@@ -38,7 +38,6 @@ const ENABLE_VALIDATION_LAYERS: bool = false;
 pub struct VulkanRenderer {
     pub instance: Arc<Instance>,
     pub device: Arc<Device>,
-    pub graphics_queue: Arc<Queue>,
 
     // must live to keep working
     surface: Arc<Surface<Window>>,
@@ -52,13 +51,16 @@ impl VulkanRenderer {
         let surface = Self::create_surface(instance.clone(), &event_loop)?;
         let physycal_device = Self::get_physical_device(&instance, &surface)?;
         let (device, mut queues) = Self::create_logical_device(physycal_device, &surface)?;
-
-        let graphics_queue = queues.next().unwrap();
+        let (swapchain, images) = Self::create_swapchain(
+            physycal_device,
+            surface.clone(),
+            device.clone(),
+            &mut queues,
+        )?;
 
         let result = VulkanRenderer {
             instance: instance,
             device,
-            graphics_queue,
             surface,
             debug_callback,
         };
@@ -155,10 +157,7 @@ impl VulkanRenderer {
             return None;
         }
 
-        let mut msg_severity = MessageSeverity::errors_and_warnings();
-        msg_severity.information = true;
-        msg_severity.verbose = true;
-
+        let msg_severity = MessageSeverity::errors_and_warnings();
         let msg_type = MessageType::all();
 
         DebugCallback::new(&instance, msg_severity, msg_type, |msg| {
@@ -275,5 +274,100 @@ impl VulkanRenderer {
         )?;
 
         Ok((device, queues))
+    }
+
+    fn create_swapchain(
+        physical: PhysicalDevice,
+        surface: Arc<Surface<Window>>,
+        device: Arc<Device>,
+        queues: &mut QueuesIter,
+    ) -> Result<(Arc<Swapchain<Window>>, Vec<Arc<SwapchainImage<Window>>>), EngineError> {
+        let (swapchain, images) = {
+            let surface_capabilities = surface.capabilities(physical)?;
+
+            let (surface_format, color_space) =
+                Self::choose_best_surface_format(surface_capabilities.supported_formats);
+
+            let presentation_mode =
+                Self::choose_best_presentation_mode(surface_capabilities.present_modes);
+
+            let mut image_count: u32 = surface_capabilities.min_image_count + 1;
+            if let Some(max_image_count) = surface_capabilities.max_image_count {
+                image_count = std::cmp::min(image_count, max_image_count)
+            }
+
+            // Opaque (VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) is the first element, if available, in the iter() implementation
+            let alpha = surface_capabilities
+                .supported_composite_alpha
+                .iter()
+                .next()
+                .unwrap();
+
+            // VkExtent2D is created inside swapchain creation and uses dimensions values to be built
+            let mut dimensions: [u32; 2] = surface.window().inner_size().into();
+            dimensions[0] = std::cmp::max(
+                surface_capabilities.min_image_extent[0],
+                std::cmp::min(surface_capabilities.max_image_extent[0], dimensions[0]),
+            );
+            dimensions[1] = std::cmp::max(
+                surface_capabilities.min_image_extent[1],
+                std::cmp::min(surface_capabilities.max_image_extent[1], dimensions[1]),
+            );
+
+            let sharing_mode: SharingMode = {
+                let mut queue_list: Vec<u32> = Vec::new();
+                while let Some(q) = queues.next() {
+                    queue_list.push(q.id_within_family());
+                }
+
+                if queue_list.len() == 1 {
+                    SharingMode::Exclusive
+                } else {
+                    SharingMode::Concurrent(queue_list)
+                }
+            };
+
+            Swapchain::new(
+                device.clone(),
+                surface.clone(),
+                image_count,
+                surface_format,
+                dimensions,
+                1,
+                ImageUsage::color_attachment(),
+                sharing_mode,
+                SurfaceTransform::Identity,
+                alpha,
+                presentation_mode,
+                FullscreenExclusive::Default,
+                true,
+                color_space,
+            )?
+        };
+
+        Ok((swapchain, images))
+    }
+
+    fn choose_best_surface_format(
+        avalilable_formats: Vec<(Format, ColorSpace)>,
+    ) -> (Format, ColorSpace) {
+        let best_format = avalilable_formats.clone().into_iter().find(|f| {
+            (f.0 == Format::R8G8B8A8Unorm || f.0 == Format::B8G8R8A8Unorm)
+                && f.1 == ColorSpace::SrgbNonLinear
+        });
+
+        if let Some(format) = best_format {
+            return format;
+        }
+
+        return avalilable_formats[0];
+    }
+
+    fn choose_best_presentation_mode(supported_modes: SupportedPresentModes) -> PresentMode {
+        if supported_modes.mailbox {
+            return PresentMode::Mailbox;
+        }
+
+        return PresentMode::Fifo;
     }
 }
