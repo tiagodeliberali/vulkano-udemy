@@ -2,7 +2,7 @@ use std::sync::Arc;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
     command_buffer::{AutoCommandBufferBuilder, DynamicState},
-    device::{Device, Queue, QueuesIter},
+    device::{Device, DeviceExtensions, Queue, QueuesIter},
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
     image::{ImageUsage, SwapchainImage},
     instance::{
@@ -90,7 +90,7 @@ impl VulkanRenderer {
             }),
         };
 
-        let extensions = Self::get_required_extensions();
+        let extensions = Self::get_required_instance_extensions();
 
         if !Self::check_instance_extension_support(&extensions) {
             return Err(EngineError::VulkanValidationError(String::from(
@@ -120,7 +120,7 @@ impl VulkanRenderer {
             .unwrap()
     }
 
-    fn get_required_extensions() -> InstanceExtensions {
+    fn get_required_instance_extensions() -> InstanceExtensions {
         // This method returns the intersect between the ideal winit requirements and supported_by_core (vkEnumerateInstanceExtensionProperties).
         // There is no error handling, just the intersect result whatever it is
         // So, it doesn't make sense to validate if some requirement returned by it is missing on core
@@ -206,8 +206,10 @@ impl VulkanRenderer {
         surface: &Arc<Surface<Window>>,
     ) -> bool {
         let queue_families = Self::get_queue_families(physical_device, surface);
+        let extensions = Self::get_required_device_extensions();
 
         queue_families.is_valid()
+            && Self::check_device_extension_support(&physical_device, &extensions)
     }
 
     fn get_queue_families<'a>(
@@ -233,14 +235,31 @@ impl VulkanRenderer {
         queue_family_indices
     }
 
+    fn get_required_device_extensions() -> DeviceExtensions {
+        DeviceExtensions {
+            khr_swapchain: true,
+            ..vulkano::device::DeviceExtensions::none()
+        }
+    }
+
+    fn check_device_extension_support(
+        device: &PhysicalDevice,
+        extensions: &DeviceExtensions,
+    ) -> bool {
+        let supported_extensions = DeviceExtensions::supported_by_device(*device);
+        println!(
+            "Supported Device extensions:\n\n{:#?}",
+            supported_extensions
+        );
+
+        supported_extensions.intersection(extensions).eq(extensions)
+    }
+
     fn create_logical_device(
         physical: PhysicalDevice,
         surface: &Arc<Surface<Window>>,
     ) -> Result<(Arc<Device>, QueuesIter), EngineError> {
-        let device_ext = vulkano::device::DeviceExtensions {
-            khr_swapchain: true,
-            ..vulkano::device::DeviceExtensions::none()
-        };
+        let device_ext = Self::get_required_device_extensions();
 
         let families: Vec<(QueueFamily, f32)> = Self::get_queue_families(&physical, surface)
             .into_vec()
