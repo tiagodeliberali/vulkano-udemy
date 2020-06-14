@@ -35,11 +35,9 @@ impl VulkanRenderer {
     pub fn init(
         instance: Arc<Instance>,
         surface: &Arc<Surface<Window>>,
-    ) -> Result<VulkanRenderer, EngineError> {
-        let (physycal_device, queue_family) =
-            VulkanRenderer::get_physical_device(&instance, &surface)?;
-        let (device, mut queues) =
-            VulkanRenderer::create_logical_device(physycal_device, queue_family)?;
+    ) -> Result<Self, EngineError> {
+        let (physycal_device, queue_family) = Self::get_physical_device(&instance, &surface)?;
+        let (device, mut queues) = Self::create_logical_device(physycal_device, queue_family)?;
 
         let graphics_queue = queues.next().unwrap();
 
@@ -74,7 +72,7 @@ impl VulkanRenderer {
         let extensions = vulkano_win::required_extensions();
 
         // So, lets pretend we are worried and check if we have all necessary extensions :)
-        if !VulkanRenderer::check_instance_extension_support(&extensions) {
+        if !Self::check_instance_extension_support(&extensions) {
             return Err(EngineError::VulkanValidationError(String::from(
                 "Expected more instance extensions than available",
             )));
@@ -86,7 +84,7 @@ impl VulkanRenderer {
     }
 
     fn check_instance_extension_support(extensions: &InstanceExtensions) -> bool {
-        VulkanRenderer::display_supported_by_core();
+        Self::display_supported_by_core();
         println!("Requested extensions: \n {:#?}", &extensions);
 
         let value = InstanceExtensions::supported_by_core()
@@ -111,7 +109,7 @@ impl VulkanRenderer {
         while let Some(device) = physical_device_list.next() {
             let valid_queue_family = device
                 .queue_families()
-                .find(|&q| VulkanRenderer::is_valid_queue_family(q, surface));
+                .find(|&q| Self::is_valid_queue_family(q, surface));
 
             if let Some(family) = valid_queue_family {
                 return Ok((device, family));
