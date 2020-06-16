@@ -5,13 +5,17 @@ use vulkano::{
     device::{Device, DeviceExtensions, Queue, QueuesIter},
     format::Format,
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
-    image::{ImageUsage, SwapchainImage},
+    image::{ImageLayout, ImageUsage, SwapchainImage},
     instance::{
         debug::{DebugCallback, MessageSeverity, MessageType},
         layers_list, ApplicationInfo, Instance, InstanceExtensions, PhysicalDevice, QueueFamily,
         Version,
     },
-    pipeline::{viewport::Viewport, GraphicsPipeline},
+    pipeline::{
+        blend::{AttachmentBlend, BlendFactor},
+        viewport::Viewport,
+        GraphicsPipeline,
+    },
     swapchain::{
         acquire_next_image, AcquireError, ColorSpace, FullscreenExclusive, PresentMode,
         SupportedPresentModes, Surface, SurfaceTransform, Swapchain, SwapchainCreationError,
@@ -57,6 +61,8 @@ impl VulkanRenderer {
             device.clone(),
             &mut queues,
         )?;
+
+        Self::create_graphic_pipeline(device.clone(), swapchain.clone())?;
 
         let result = VulkanRenderer {
             instance: instance,
@@ -369,5 +375,145 @@ impl VulkanRenderer {
         }
 
         return PresentMode::Fifo;
+    }
+
+    fn create_graphic_pipeline(
+        device: Arc<Device>,
+        swapchain: Arc<Swapchain<Window>>,
+    ) -> Result<(), EngineError> {
+        #[derive(Default, Debug, Clone)]
+        struct Vertex {
+            position: [f32; 2],
+        }
+        vulkano::impl_vertex!(Vertex, position);
+
+        let vertex_buffer = CpuAccessibleBuffer::from_iter(
+            device.clone(),
+            BufferUsage::all(),
+            false,
+            [
+                Vertex {
+                    position: [-0.5, -0.25],
+                },
+                Vertex {
+                    position: [0.0, 0.5],
+                },
+                Vertex {
+                    position: [0.25, -0.1],
+                },
+            ]
+            .iter()
+            .cloned(),
+        )
+        .unwrap();
+
+        mod vertex_shader {
+            vulkano_shaders::shader! {
+                ty: "vertex",
+                src: "
+                #version 450
+    
+                layout(location = 0) in vec2 position;
+
+                layout(location = 0) out vec3 fragColour;
+
+                // Triangle vertex colours
+                vec3 colours[3] = vec3[](
+                    vec3(1.0, 0.0, 0.0),
+                    vec3(0.0, 1.0, 0.0),
+                    vec3(0.0, 0.0, 1.0)
+                );
+    
+                void main() {
+                    gl_Position = vec4(position, 0.0, 1.0);
+                    fragColour = colours[gl_VertexIndex];
+                }"
+            }
+        }
+
+        mod fragment_shader {
+            vulkano_shaders::shader! {
+                ty: "fragment",
+                src: "
+                #version 450
+
+                layout(location = 0) in vec3 fragColour;
+    
+                layout(location = 0) out vec4 f_color;
+    
+                void main() {
+                    f_color = vec4(fragColour, 1.0);
+                }"
+            }
+        }
+
+        let vertex_shader = vertex_shader::Shader::load(device.clone())?;
+        let fragment_shader = fragment_shader::Shader::load(device.clone())?;
+
+        let render_pass = Arc::new(
+            vulkano::single_pass_renderpass!(device.clone(),
+                attachments: {
+                    color: {
+                        load: Clear,
+                        store: Store,
+                        format: swapchain.format(),
+                        samples: 1,
+                        initial_layout: ImageLayout::Undefined,
+                        final_layout: ImageLayout::PresentSrc,
+                    }
+                },
+                pass: {
+                    color: [color],
+                    depth_stencil: {}
+                }
+            )
+            .unwrap(),
+        );
+
+        let mut blend_info = AttachmentBlend::alpha_blending();
+        blend_info.alpha_source = BlendFactor::One;
+        blend_info.alpha_destination = BlendFactor::Zero;
+
+        let pipeline = Arc::new(
+            GraphicsPipeline::start()
+                // Defines what kind of vertex input is expected.
+                .vertex_input_single_buffer::<Vertex>()
+                // The vertex shader.
+                .vertex_shader(vertex_shader.main_entry_point(), ())
+                // VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
+                .triangle_list()
+                // Defines the viewport (explanations below).
+                .viewports_dynamic_scissors_irrelevant(1)
+                // rasterizerCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE
+                .front_face_clockwise()
+                // rasterizerCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT
+                .cull_mode_back()
+                // POLYGON_MODE_FILL - lets test what other values does to the final render :)
+                .polygon_mode_fill()
+                // VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
+                .blend_collective(blend_info)
+                // The fragment shader.
+                .fragment_shader(fragment_shader.main_entry_point(), ())
+                // STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
+                // multisamplingCreateInfo.rasterizationSamples is tied to render_pass (VkAttachmentDescription).
+                // There is a TODO there. Default is 1 (VK_SAMPLE_COUNT_1_BIT)
+                .sample_shading_disabled()
+                // This graphics pipeline object concerns the first pass of the render pass.
+                .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+                // Now that everything is specified, we call `build`.
+                .build(device.clone())
+                .unwrap(),
+        );
+
+        let mut dynamic_state = DynamicState {
+            line_width: None,
+            viewports: None,
+            scissors: None,
+            compare_mask: None,
+            write_mask: None,
+            reference: None,
+        };
+
+        Ok(())
     }
 }
