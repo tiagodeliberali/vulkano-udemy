@@ -2,9 +2,12 @@ use std::sync::Arc;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
     command_buffer::{AutoCommandBufferBuilder, DynamicState},
+    descriptor::PipelineLayoutAbstract,
     device::{Device, DeviceExtensions, Queue, QueuesIter},
     format::Format,
-    framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
+    framebuffer::{
+        Framebuffer, FramebufferAbstract, RenderPass, RenderPassAbstract, RenderPassDesc, Subpass,
+    },
     image::{ImageLayout, ImageUsage, SwapchainImage},
     instance::{
         debug::{DebugCallback, MessageSeverity, MessageType},
@@ -13,8 +16,9 @@ use vulkano::{
     },
     pipeline::{
         blend::{AttachmentBlend, BlendFactor},
+        vertex::SingleBufferDefinition,
         viewport::Viewport,
-        GraphicsPipeline,
+        GraphicsPipeline, GraphicsPipelineAbstract,
     },
     swapchain::{
         acquire_next_image, AcquireError, ColorSpace, FullscreenExclusive, PresentMode,
@@ -37,6 +41,11 @@ const VALIDATION_LAYERS: &[&str] = &["VK_LAYER_KHRONOS_validation"];
 const ENABLE_VALIDATION_LAYERS: bool = true;
 #[cfg(not(debug_assertions))]
 const ENABLE_VALIDATION_LAYERS: bool = false;
+
+#[derive(Default, Debug, Clone)]
+struct Vertex {
+    position: [f32; 3],
+}
 
 #[allow(unused)]
 pub struct VulkanRenderer {
@@ -61,8 +70,8 @@ impl VulkanRenderer {
             device.clone(),
             &mut queues,
         )?;
-
-        Self::create_graphic_pipeline(device.clone(), swapchain.clone())?;
+        let (pipeline, dynamic_state) =
+            Self::create_graphic_pipeline(device.clone(), swapchain.clone())?;
 
         let result = VulkanRenderer {
             instance: instance,
@@ -380,32 +389,14 @@ impl VulkanRenderer {
     fn create_graphic_pipeline(
         device: Arc<Device>,
         swapchain: Arc<Swapchain<Window>>,
-    ) -> Result<(), EngineError> {
-        #[derive(Default, Debug, Clone)]
-        struct Vertex {
-            position: [f32; 2],
-        }
+    ) -> Result<
+        (
+            Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
+            DynamicState,
+        ),
+        EngineError,
+    > {
         vulkano::impl_vertex!(Vertex, position);
-
-        let vertex_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            BufferUsage::all(),
-            false,
-            [
-                Vertex {
-                    position: [-0.5, -0.25],
-                },
-                Vertex {
-                    position: [0.0, 0.5],
-                },
-                Vertex {
-                    position: [0.25, -0.1],
-                },
-            ]
-            .iter()
-            .cloned(),
-        )
-        .unwrap();
 
         mod vertex_shader {
             vulkano_shaders::shader! {
@@ -413,7 +404,7 @@ impl VulkanRenderer {
                 src: "
                 #version 450
     
-                layout(location = 0) in vec2 position;
+                layout(location = 0) in vec3 position;
 
                 layout(location = 0) out vec3 fragColour;
 
@@ -425,7 +416,7 @@ impl VulkanRenderer {
                 );
     
                 void main() {
-                    gl_Position = vec4(position, 0.0, 1.0);
+                    gl_Position = vec4(position, 1.0);
                     fragColour = colours[gl_VertexIndex];
                 }"
             }
@@ -505,7 +496,7 @@ impl VulkanRenderer {
                 .unwrap(),
         );
 
-        let mut dynamic_state = DynamicState {
+        let dynamic_state = DynamicState {
             line_width: None,
             viewports: None,
             scissors: None,
@@ -514,6 +505,28 @@ impl VulkanRenderer {
             reference: None,
         };
 
-        Ok(())
+        Ok((pipeline, dynamic_state))
+    }
+
+    fn create_vertex_to_draw(device: Arc<Device>) {
+        let vertex_buffer = CpuAccessibleBuffer::from_iter(
+            device.clone(),
+            BufferUsage::all(),
+            false,
+            [
+                Vertex {
+                    position: [-0.5, -0.25, 0.0],
+                },
+                Vertex {
+                    position: [0.0, 0.5, 0.0],
+                },
+                Vertex {
+                    position: [0.25, -0.1, 0.0],
+                },
+            ]
+            .iter()
+            .cloned(),
+        )
+        .unwrap();
     }
 }
