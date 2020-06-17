@@ -70,8 +70,7 @@ impl VulkanRenderer {
             device.clone(),
             &mut queues,
         )?;
-        let (pipeline, dynamic_state) =
-            Self::create_graphic_pipeline(device.clone(), swapchain.clone())?;
+        let pipeline = Self::create_graphic_pipeline(device.clone(), swapchain.clone())?;
 
         let result = VulkanRenderer {
             instance: instance,
@@ -389,13 +388,7 @@ impl VulkanRenderer {
     fn create_graphic_pipeline(
         device: Arc<Device>,
         swapchain: Arc<Swapchain<Window>>,
-    ) -> Result<
-        (
-            Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
-            DynamicState,
-        ),
-        EngineError,
-    > {
+    ) -> Result<Arc<dyn GraphicsPipelineAbstract + Send + Sync>, EngineError> {
         vulkano::impl_vertex!(Vertex, position);
 
         mod vertex_shader {
@@ -496,16 +489,7 @@ impl VulkanRenderer {
                 .unwrap(),
         );
 
-        let dynamic_state = DynamicState {
-            line_width: None,
-            viewports: None,
-            scissors: None,
-            compare_mask: None,
-            write_mask: None,
-            reference: None,
-        };
-
-        Ok((pipeline, dynamic_state))
+        Ok(pipeline)
     }
 
     fn create_vertex_to_draw(device: Arc<Device>) {
